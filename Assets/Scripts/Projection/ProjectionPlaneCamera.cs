@@ -15,7 +15,7 @@ namespace Apt.Unity.Projection
 
         [Header("Projection plane")]
         public ProjectionPlane ProjectionScreen;
-        public bool ClampNearPlane;
+        public bool ClampNearPlane = true;
         [Header("Helpers")]
         public bool DrawGizmos = true;
 
@@ -37,7 +37,6 @@ namespace Apt.Unity.Projection
         {
             cam = GetComponent<Camera>();
 
-            f = cam.farClipPlane;
         }
 
 
@@ -95,6 +94,7 @@ namespace Apt.Unity.Projection
                 if (ClampNearPlane)
                     cam.nearClipPlane = d;
                 n = cam.nearClipPlane;
+                f = cam.farClipPlane;
 
                 float nearOverDist = n / d;
                 l = Vector3.Dot(vr, va) * nearOverDist;
@@ -111,7 +111,6 @@ namespace Apt.Unity.Projection
                 cam.worldToCameraMatrix = M * R * T;
 
                 cam.projectionMatrix = P;
-                cam.nonJitteredProjectionMatrix = P;
             }
         }
 
