@@ -239,7 +239,8 @@ class LegoTracker:
         cap = cv2.VideoCapture(0)
         
         prev_face = []
-        while cap.isOpened():
+        k = cv2.waitKey(30) & 0xff
+        while k != 27:  # ESC
             _, img = cap.read()
         
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
@@ -278,6 +279,8 @@ class LegoTracker:
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
             prev_face = faces 
+            k = cv2.waitKey(30) & 0xff
+
         cap.release()
     
     def main(self):
