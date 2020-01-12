@@ -28,7 +28,7 @@ async def tcp_echo_client(message, loop):
     data = await reader.read(100)
     # we expect data to be JSON formatted
     data_json = json.loads(data.decode())
-    print('Received:\n%r' % data_json)
+    #print('Received:\n%r' % data_json)
 
     print('Close the socket')
     writer.close()
@@ -50,34 +50,22 @@ def show_image_with_data(frame, blinks, irises, err=None):
         cv2.circle(frame, (w, h), 2, (0, 255, 0), 2)
     cv2.imshow('Eyeris detector', frame)
 
-
-class ImageSource:
-    """
-    Returns frames from camera
-    """
-    def __init__(self):
-        self.capture = cv2.VideoCapture(0)
-
-    def get_current_frame(self, gray=False):
-        ret, frame = self.capture.read()
-        frame = cv2.flip(frame, 1)
-        if not gray:
-            return frame
-        return cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-
-    def release(self):
-        self.capture.release()
-
-
 class CascadeClassifier:
     """
     This classifier is trained by default in OpenCV
     """
-    def __init__(self, glasses=True):
+    def __init__(self, detect_faces=True, glasses=False):
         if glasses:
             self.eye_cascade = cv2.CascadeClassifier(join('haar', 'haarcascade_eye_tree_eyeglasses.xml'))
         else:
             self.eye_cascade = cv2.CascadeClassifier(join('haar', 'haarcascade_eye.xml'))
+        if detect_faces:
+            self.face_cascade = cv2.CascadeClassifier('haarcascade_frontalface_default.xml')
+            self.prev_face = []
+            self.sp = []
+            self.sp2 = []
+            self.sl = 0
+            self.smooth_init = False
 
     def get_irises_location(self, frame_gray):
         eyes = self.eye_cascade.detectMultiScale(frame_gray, 1.3, 5)  # if not empty - eyes detected
@@ -87,9 +75,43 @@ class CascadeClassifier:
             iris_w = int(ex + float(ew / 2))
             iris_h = int(ey + float(eh / 2))
             irises.append([np.float32(iris_w), np.float32(iris_h)])
-        print(irises)
 
         return np.array(irises)
+    
+    def get_face_bbox(self, frame_gray):
+        faces = self.face_cascade.detectMultiScale(frame_gray, 1.1, 4)
+        
+        if (len(faces) != 0):      
+            if (len(self.prev_face) != 0):
+                x_prev = self.prev_face[0]
+                y_prev = self.prev_face[1]
+                dists = np.zeros((len(faces),1))
+                for k in range(len(faces)):
+                    x = faces[k][0]
+                    y = faces[k][1]
+                    dists[k] = (x_prev-x)^2 + (y_prev-y)^2
+                arg_min = np.argmin(dists)
+                return faces[arg_min] # discard other people's faces
+            else:
+                return faces[0]
+        else:
+            return []
+    
+    def init_smoother(self, init_face):
+        self.smooth_init = True
+        self.sp = init_face
+        self.sp2 = init_face
+        self.sl = len(init_face)
+        
+    def double_exp_smoother(self, face, alpha = 0.35):
+        if(self.smooth_init):
+            # update
+            self.sp = alpha * face + (1-alpha)*self.sp
+            self.sp2 = alpha * self.sp + (1-alpha)*self.sp2
+            new_face = np.rint(2*self.sp - self.sp2)
+            return new_face.astype(int)
+        else:
+            return face
 
 
 class LucasKanadeTracker:
@@ -123,42 +145,6 @@ class LucasKanadeTracker:
             irises = np.array(irises)
         return irises, blinks, blink_in_previous, lost_track
 
-
-class EyerisDetector:
-    """
-    Main class which use image source, classifier and tracker to estimate iris postion
-    Algorithm used in detector is designed for one person (with two eyes)
-    It can detect more than two eyes, but it tracks only two
-    """
-    def __init__(self, image_source, classifier, tracker):
-        self.tracker = tracker
-        self.classifier = classifier
-        self.image_source = image_source
-        self.irises = []
-        self.blink_in_previous = False
-        self.blinks = 0
-
-    def run(self):
-        k = cv2.waitKey(30) & 0xff
-        while k != 27:  # ESC
-            frame = self.image_source.get_current_frame()
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-
-            if len(self.irises) >= 2:  # irises detected, track eyes
-                track_result = self.tracker.track(old_gray, gray, self.irises, self.blinks, self.blink_in_previous)
-                self.irises, self.blinks, self.blink_in_previous, lost_track = track_result
-                if lost_track:
-                    self.irises = self.classifier.get_irises_location(gray)
-            else:  # cannot track for some reason -> find irises
-                self.irises = self.classifier.get_irises_location(gray)
-
-            show_image_with_data(frame, self.blinks, self.irises)
-            k = cv2.waitKey(30) & 0xff
-            old_gray = gray.copy()
-
-        self.image_source.release()
-        cv2.destroyAllWindows()
-
 class LegoTracker:
  
     def __init__(self, image_source, classifier, tracker):
@@ -174,6 +160,9 @@ class LegoTracker:
         self.x_axis = 0.0
         self.y_axis = 0.0
         self.z_axis = 0.0
+        
+        self.fov = None
+        self.distance_from_camera_to_screen = None
     
     def _update_image(self):
         # get image from webcam 
@@ -231,60 +220,183 @@ class LegoTracker:
             loop = asyncio.get_event_loop()
             loop.run_until_complete(tcp_echo_client(message, loop))
             #loop.close()
+
+    def show_tracked_head(self, img, face, x_cm, y_cm, z_cm):
+        if (len(face) >= 4):
+            x = face[0]
+            y = face[1]
+            w = face[2]
+            h = face[3]
+            cv2.rectangle(img, (x,y), (x+w, y+h), (255, 0 , 0), 3)
+            text_x = 'x: {}'.format(x_cm)
+            text_y = 'y: {}'.format(y_cm)
+            text_z = 'z: {}'.format(z_cm)
+            cv2.putText(img, text_x, (10,15), cv2.FONT_HERSHEY_SIMPLEX, 0.5,(255,255,255),2)
+            cv2.putText(img, text_y, (10,30), cv2.FONT_HERSHEY_SIMPLEX, 0.5,(255,255,255),2)
+            cv2.putText(img, text_z, (10,45), cv2.FONT_HERSHEY_SIMPLEX, 0.5,(255,255,255),2)
+        cv2.imshow('img', img)
+                
  
+    def headposition(self, face, img, edge_correction):
+        # some assumptions that are used when calculating distances and estimating horizontal fov
+		# head width = 16 cm
+		# head height = 19 cm
+		# when initialized, user is approximately 60 cm from camera
+        head_width_cm = 16
+        head_height_cm = 19
+        
+        # angle between side of face and diagonal across
+        head_small_angle = np.arctan(head_width_cm/head_height_cm)
+        head_diag_cm = np.sqrt((head_width_cm*head_width_cm)+(head_height_cm*head_height_cm)) # diagonal of face in real space
+        
+        camheight_cam, camwidth_cam = img.shape[:2]
+        
+        sin_hsa = np.sin(head_small_angle) #precalculated sine
+        cos_hsa = np.cos(head_small_angle) #precalculated cosine
+        tan_hsa = np.tan(head_small_angle) #precalculated tan
+        
+        # estimate horizontal field of view of camera
+        init_width_cam = face[2]
+        init_height_cam = face[3]
+        head_diag_cam = np.sqrt((init_width_cam*init_width_cam)+(init_height_cam*init_height_cam))
+        
+        # we use the diagonal of the faceobject to estimate field of view of the camera
+        # we use the diagonal since this is less sensitive to errors in width or height
+        head_width_cam = sin_hsa * head_diag_cam
+        camwidth_at_default_face_cm = (camwidth_cam/head_width_cam) * head_width_cm
+        
+        if self.fov == None:
+            # we assume user is sitting around 60 cm from camera (normal distance on a laptop)
+            distance_to_screen = 45
+        
+            #calculate estimate of field of view
+            fov_width = np.arctan((camwidth_at_default_face_cm/2)/distance_to_screen) * 2
+        else:
+            fov_width = self.fov * np.pi/180
+            
+        self.fov = fov_width * 180/np.pi
+            
+        # precalculate ratio between camwidth and distance
+        tan_fov_width = 2 * np.tan(fov_width/2)
+        
+        # calculate cm-distance from screen
+        z = (head_diag_cm*camwidth_cam)/(tan_fov_width*head_diag_cam)
+		# to transform to z_3ds : z_3ds = (head_diag_3ds/head_diag_cm)*z
+		# i.e. just use ratio
+		
+        w = face[2]
+        h = face[3]
+        fx = face[0] + w/2
+        fy = face[1] + h/2
+        
+        if(edge_correction):
+            # recalculate head_diag_cam, fx, fy
+            margin = 11
+            
+            leftDistance = fx - w/2
+            rightDistance = camwidth_cam - (fx + w/2)
+            topDistance = fy - h/2
+            bottomDistance = camheight_cam - (fy + h/2)
+            
+            onVerticalEdge = leftDistance < margin or rightDistance < margin
+            onHorizontalEdge = topDistance < margin or bottomDistance < margin
+            
+            if(onHorizontalEdge):
+                if(onVerticalEdge):
+                    # we are in a corner, use previous diagonal as estimate, i.e. don't change head_diag_cam
+                    onLeftEdge = leftDistance < margin
+                    onTopEdge = topDistance < margin
+                    
+                    if (onLeftEdge):
+                        fx = w - (head_diag_cam * sin_hsa/2)
+                    else:
+                        fx = fx - w/2 + (head_diag_cam * sin_hsa/2)
+                    
+                    if (onTopEdge):
+                        fy = h - (head_diag_cam * cos_hsa/2)
+                    else:
+                        fy = fy - h/2 + (head_diag_cam * cos_hsa/2)
+                else:
+                    # we are on top or bottom edge of camera, use width insted of diagonal and correct y-position
+                    # fix fy
+                    if (topDistance < margin):
+                        originalWeight = topDistance/margin
+                        estimateWeight = (margin - topDistance)/margin
+                        fy = h - (originalWeight*(h/2) + estimateWeight*((w/tan_hsa)/2))
+                        head_diag_cam = estimateWeight*(2/sin_hsa) + originalWeight*(np.sqrt(w*w + h*h))
+                    else:
+                        originalWeight = bottomDistance/margin
+                        estimateWeight = (margin - bottomDistance)/margin
+                        fy = fy - h/2 + (originalWeight*(h/2) + estimateWeight*((w/tan_hsa)/2))
+                        head_diag_cam = estimateWeight*(w/sin_hsa) + originalWeight*(np.sqrt(w*w + h*h))
+            elif (onVerticalEdge):
+                # we are on the sides of the camera, use height and correct x-position
+                if (leftDistance < margin):
+                    originalWeight = leftDistance/margin
+                    estimateWeight = (margin - leftDistance)/margin
+                    head_diag_cam = estimateWeight*(h/cos_hsa) + originalWeight*(np.sqrt(w*w + h*h))
+                    fx = w - (originalWeight*(w/2) + estimateWeight*(h*tan_hsa/2))
+                else:
+                    originalWeight = rightDistance/margin
+                    estimateWeight = (margin - rightDistance)/margin
+                    head_diag_cam = estimateWeight*(h/cos_hsa) + originalWeight*(np.sqrt(w*w + h*h))
+                    fx = fx - w/2 + (originalWeight*(w/2) + estimateWeight*(h*tan_hsa/2))
+            else:
+                head_diag_cam = np.sqrt(w*w + h*h)
+        else:
+            head_diag_cam = np.sqrt(w*w + h*h)
+        
+		# calculate cm-position relative to center of screen
+        x = -((fx/camwidth_cam) - 0.5) * z * tan_fov_width
+        y = -((fy/camheight_cam) - 0.5) * z * tan_fov_width * (camheight_cam/camwidth_cam)
+		
+		
+		# Transformation from position relative to camera, to position relative to center of screen
+        if self.distance_from_camera_to_screen == None:
+            # default is 11.5 cm approximately
+            y + 11.5
+            
+        else:
+            y = y + self.distance_from_camera_to_screen
+		
+        
+        return x, y, z
+    
     def face_tracker(self):
-        face_cascade = cv2.CascadeClassifier('haarcascade_frontalface_default.xml')
         # Read the input image
         #img = cv2.imread('test.png')
-        cap = cv2.VideoCapture(0)
         
-        prev_face = []
         k = cv2.waitKey(30) & 0xff
-        while k != 27:  # ESC
-            _, img = cap.read()
-        
+        while k != 27:
+            img = self.webcam.get_current_frame()        
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-            faces = face_cascade.detectMultiScale(gray, 1.1, 4)
             
-            if (len(prev_face) != 0 and len(faces) > 1):
-                x_prev = prev_face[0][0]
-                y_prev = prev_face[0][1]
-                dists = np.zeros((len(faces),1))
-                for k in range(len(faces)):
-                    x = faces[k][0]
-                    y = faces[k][1]
-                    dists[k] = (x_prev-x)^2 + (y_prev-y)^2
+            face = self.classifier.get_face_bbox(gray)
+            face_x_cm, face_y_cm, face_z_cm = 0, 0, 0
+
+            if (len(self.classifier.prev_face) != 0 and len(face) != 0):
                 
-                arg_min = np.argmin(dists)
-                faces = [faces[arg_min]]
-                    
+                if (not self.classifier.smooth_init):
+                    self.classifier.init_smoother(face)
+                else:
+                    face = self.classifier.double_exp_smoother(face,0.2)
                 
-        
-            for (x, y , w ,h) in faces:
-                cv2.rectangle(img, (x,y), (x+w, y+h), (255, 0 , 0), 3)
-            
-            if(len(prev_face) != 0 and len(faces) != 0):
-                diff_x = faces[0][0] - prev_face[0][0]
-                diff_y = faces[0][1] - prev_face[0][1]
-                diff_z = (faces[0][2] - prev_face[0][2] + faces[0][3] - prev_face[0][3]) / 2
-                message = {"eyeX": diff_x/100,
-                       "eyeY": diff_y/100,
-                       "eyeZ": diff_z/100}
+                face_x_cm, face_y_cm, face_z_cm = self.headposition(face, img, True)
+                message = {"eyeX": face_x_cm,
+                           "eyeY": face_y_cm,
+                           "eyeZ": face_z_cm}
                 loop = asyncio.get_event_loop()
                 loop.run_until_complete(tcp_echo_client(message, loop))
 
             
             # Display the output
-            cv2.imshow('img', img)
-            if cv2.waitKey(1) & 0xFF == ord('q'):
-                break
-            prev_face = faces 
+            self.show_tracked_head(img,face,face_x_cm, face_y_cm, face_z_cm)
             k = cv2.waitKey(30) & 0xff
-
-        cap.release()
-    
+            self.classifier.prev_face = face
+        self.webcam.release()
+        cv2.destroyAllWindows()
+            
     def main(self):
-#        self.run()
         self.face_tracker()
         print('finished lego main')
  
