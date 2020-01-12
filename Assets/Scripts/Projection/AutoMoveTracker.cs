@@ -60,13 +60,16 @@ namespace Apt.Unity.Projection
         public float speedZ = 2.0f;
 
         public float screenHeight_cms = 16;
+        public float scaling;
         #endregion
 
         int counter = 0;
 
         void Start()
         {
-            IsTracking = true;
+            IsTracking = false;
+
+            scaling = 4.5f / screenHeight_cms; //screen height 3d world/height in cm
 
             // Start TcpServer background thread 		
             tcpListenerThread = new Thread(new ThreadStart(ListenForIncommingRequests));
@@ -88,13 +91,16 @@ namespace Apt.Unity.Projection
 
             if(IsTracking)
             {
-                SecondsHasBeenTracked += Time.deltaTime;
-                float xSize = XMovement * HalfBoundSize;
-                float ySize = YMovement * HalfBoundSize;
-                float zSize = ZMovement * HalfBoundSize;
-                translation.x =  Mathf.Sin(SecondsHasBeenTracked) * xSize;
-                translation.y =  Mathf.Sin(SecondsHasBeenTracked - (Mathf.PI * 2 / 3)) * ySize;
-                translation.z =  Mathf.Sin(SecondsHasBeenTracked) * zSize;
+                //SecondsHasBeenTracked += Time.deltaTime;
+                //float xSize = XMovement * HalfBoundSize * scaling;
+                //float ySize = YMovement * HalfBoundSize * scaling;
+                //float zSize = ZMovement * HalfBoundSize * scaling;
+                //translation.x =  Mathf.Sin(SecondsHasBeenTracked) * xSize;
+                //translation.y =  Mathf.Sin(SecondsHasBeenTracked - (Mathf.PI * 2 / 3)) * ySize;
+                //translation.z =  Mathf.Sin(SecondsHasBeenTracked) * zSize;
+                translation.x = XMovement * scaling;
+                translation.y = YMovement * scaling;
+                translation.z = -ZMovement * scaling;
             }
 
         }
@@ -152,6 +158,7 @@ namespace Apt.Unity.Projection
             {
                 zoffset = irises.eyeZ;
                 firstmsg = false;
+                IsTracking = true;
             }
             // Tell the python client we received the message
             SendMessage();
@@ -184,7 +191,7 @@ namespace Apt.Unity.Projection
                     byte[] serverMessageAsByteArray = Encoding.UTF8.GetBytes(serverMessage_string);  // serverMessage				
                                                                                                      // Write byte array to socketConnection stream.               
                     stream.Write(serverMessageAsByteArray, 0, serverMessageAsByteArray.Length);
-                    Debug.Log("Server sent his message - should be received by client");
+                    //Debug.Log("Server sent his message - should be received by client");
                 }
             }
             catch (SocketException socketException)
