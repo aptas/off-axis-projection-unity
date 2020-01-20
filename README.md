@@ -6,7 +6,7 @@ This work is based on the article found [here](https://medium.com/@michel.brisis
 
 The application can be executed as follows:
 
-- Run off-axis-projection.exe
+- Run 'off-axis-projection.exe', which requires 'UnityPlayer.dll' and the folder 'off-axis-projection_Data'.
 - Press 'S' or 'Enter' in the application
 - From console, access the Python-tracking directory >> cd C:\<path>\off-axis-projection-unity-master\Python-tracking
 - Run >>python main.py
