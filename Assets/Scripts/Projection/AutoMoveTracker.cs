@@ -79,10 +79,15 @@ namespace Apt.Unity.Projection
 
         void Update()
         {
-            if(Input.GetKeyUp(KeyCode.A) && (Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl)))
+            if (Input.GetKeyUp(KeyCode.S) || Input.GetKey(KeyCode.KeypadEnter))
             {
                 IsTracking = !IsTracking;
                 SecondsHasBeenTracked = 0;
+            }
+
+            if (Input.GetKeyUp(KeyCode.Escape))
+            {
+                Application.Quit();
             }
 
             XMovement = irises.eyeX;

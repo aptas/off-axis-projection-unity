@@ -61,7 +61,7 @@ namespace Apt.Unity.Projection
 
         void Start()
         {
-            if(Application.isPlaying)
+            if (Application.isPlaying)
             {
                 alignmentCube = new GameObject("AlignmentCube");
                 alignmentCube.transform.SetParent(transform, false);
@@ -79,7 +79,6 @@ namespace Apt.Unity.Projection
                 topTrans = top.transform;
                 GameObject bottom = CreateAlignmentQuad();
                 bottomTrans = bottom.transform;
-
             }
         }
 
@@ -175,7 +174,7 @@ namespace Apt.Unity.Projection
             BottomRight = transform.TransformPoint(new Vector3(Size.x, -Size.y) * 0.5f);
             TopLeft = transform.TransformPoint(new Vector3(-Size.x, Size.y) * 0.5f);
             TopRight = transform.TransformPoint(new Vector3(Size.x, Size.y) * 0.5f);
-
+            
             DirRight = (BottomRight - BottomLeft).normalized;
             DirUp = (TopLeft - BottomLeft).normalized;
             DirNormal = -Vector3.Cross(DirRight, DirUp).normalized;
