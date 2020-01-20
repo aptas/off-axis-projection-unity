@@ -12,6 +12,8 @@ import numpy as np
 from os.path import join
 import asyncio
 import json
+from darkflow.net.build import TFNet
+import subprocess as sp
 
 async def tcp_echo_client(message, loop):
     # open connection with Unity 3D
@@ -161,8 +163,21 @@ class LegoTracker:
         self.y_axis = 0.0
         self.z_axis = 0.0
         
+        self.bottle_consec = 0
+        self.bottle_found = False
+        self.book_consec = 0
+        self.book_found = False
+        self.clock_consec = 0
+        self.clock_found = False
+        
         self.fov = None
         self.distance_from_camera_to_screen = None
+        self.cap = cv2.VideoCapture(0)
+
+        
+        options = {"model": "cfg/yolo.cfg", "load": "bin/yolo.weights", "threshold": 0.5, "gpu" : 1.0}
+    
+        self.tfnet = TFNet(options)
     
     def _update_image(self):
         # get image from webcam 
@@ -362,6 +377,70 @@ class LegoTracker:
         
         return x, y, z
     
+
+
+    
+    def object_detector(self):        
+        _, img = self.cap.read()
+        result = tfnet.return_predict(img)
+
+        for k in range(len(result)):
+            obj = result[k] 
+            x1 = obj['topleft']['x']
+            y1 = obj['topleft']['y']
+            x2 = obj['bottomright']['x']
+            y2 = obj['bottomright']['y']
+            label = obj['label']
+    
+    
+            #if label == 'person':
+            #    cv2.rectangle(img, (x1,y1), (x2, y2), (255, 0 , 0), 3)
+            #    font = cv2.FONT_HERSHEY_SIMPLEX
+            #    cv2.putText(img, label, (x1-5,y1-5), font, 0.5, (255, 0, 0), 1, cv2.LINE_AA)
+            if label == 'bottle':
+                cv2.rectangle(img, (x1,y1), (x2, y2), (0, 0, 255), 3)
+                font = cv2.FONT_HERSHEY_SIMPLEX
+                cv2.putText(img, label, (x1-5,y1-5), font, 0.5, (0, 0, 255), 1, cv2.LINE_AA)
+                if not self.bottle_found and self.bottle_consec!=5:
+                    self.bottle_consec += 1
+                else:
+                    if not self.bottle_found:
+                        self.bottle_found = True
+                        self.bottle_consec = 0
+                        programName = "notepad.exe"
+                        fileName = "file.txt"
+                        f = open(fileName,"w+")
+                        sp.Popen([programName, fileName])
+            elif label == 'book':
+                cv2.rectangle(img, (x1,y1), (x2, y2), (0, 255, 0), 3)
+                font = cv2.FONT_HERSHEY_SIMPLEX
+                cv2.putText(img, label, (x1-5,y1-5), font, 0.5, (0, 255, 0), 1, cv2.LINE_AA)
+                if not self.book_found and self.book_consec!=5:
+                    self.book_consec += 1
+                else:
+                    if not self.book_found:
+                        self.book_found = True
+                        self.book_consec = 0
+                        programName = "C:\Program Files (x86)\Microsoft Office\Office14\WINWORD.exe"
+                        fileName = "file.txt"
+                        f = open(fileName,"w+")
+                        sp.Popen([programName, fileName])
+            elif label == 'clock':
+                cv2.rectangle(img, (x1,y1), (x2, y2), (255, 0, 0), 3)
+                font = cv2.FONT_HERSHEY_SIMPLEX
+                cv2.putText(img, label, (x1-5,y1-5), font, 0.5, (255, 0, 0), 1, cv2.LINE_AA)
+                if not self.clock_found and self.clock_consec!=5:
+                    self.clock_consec += 1
+                else:
+                    if not self.clock_found:
+                        self.clock_found = True
+                        self.clock_consec = 0
+                        programName = "C:\Program Files (x86)\Microsoft Office\Office14\POWERPNT.exe"
+                        fileName = "file.txt"
+                        f = open(fileName,"w+")
+                        sp.Popen([programName, fileName])
+    
+    
     def face_tracker(self):
         # Read the input image
         #img = cv2.imread('test.png')
@@ -370,7 +449,7 @@ class LegoTracker:
         while k != 27:
             img = self.webcam.get_current_frame()        
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-            
+            self.object_detector()
             face = self.classifier.get_face_bbox(gray)
             face_x_cm, face_y_cm, face_z_cm = 0, 0, 0
 
@@ -385,14 +464,12 @@ class LegoTracker:
                 message = {"eyeX": face_x_cm,
                            "eyeY": face_y_cm,
                            "eyeZ": face_z_cm}
-                try:
-                    loop = asyncio.get_event_loop()
-                    loop.run_until_complete(tcp_echo_client(message, loop))
-                except:
-                    print("Unity server not listening.")
+                loop = asyncio.get_event_loop()
+                loop.run_until_complete(tcp_echo_client(message, loop))
 
             
             # Display the output
+#            self.object_detector(result)
             self.show_tracked_head(img,face,face_x_cm, face_y_cm, face_z_cm)
             k = cv2.waitKey(30) & 0xff
             self.classifier.prev_face = face
