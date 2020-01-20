@@ -28,7 +28,7 @@ async def tcp_echo_client(message, loop):
     data = await reader.read(100)
     # we expect data to be JSON formatted
     data_json = json.loads(data.decode())
-    #print('Received:\n%r' % data_json)
+    print('Received:\n%r' % data_json)
 
     print('Close the socket')
     writer.close()
@@ -266,7 +266,7 @@ class LegoTracker:
         camwidth_at_default_face_cm = (camwidth_cam/head_width_cam) * head_width_cm
         
         if self.fov == None:
-            # we assume user is sitting around 60 cm from camera (normal distance on a laptop)
+            # we assume user is sitting around 45 cm from camera (normal distance on a laptop)
             distance_to_screen = 45
         
             #calculate estimate of field of view
@@ -354,7 +354,7 @@ class LegoTracker:
 		# Transformation from position relative to camera, to position relative to center of screen
         if self.distance_from_camera_to_screen == None:
             # default is 11.5 cm approximately
-            y + 11.5
+            y = y + 5
             
         else:
             y = y + self.distance_from_camera_to_screen
