@@ -385,8 +385,11 @@ class LegoTracker:
                 message = {"eyeX": face_x_cm,
                            "eyeY": face_y_cm,
                            "eyeZ": face_z_cm}
-                loop = asyncio.get_event_loop()
-                loop.run_until_complete(tcp_echo_client(message, loop))
+                try:
+                    loop = asyncio.get_event_loop()
+                    loop.run_until_complete(tcp_echo_client(message, loop))
+                except:
+                    print("Unity server not listening.")
 
             
             # Display the output
