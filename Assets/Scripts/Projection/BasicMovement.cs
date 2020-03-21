@@ -25,8 +25,10 @@ namespace Apt.Unity.Projection
 
             if(Tracker.IsTracking)
             {
-                projectionCamera.transform.localPosition = initialLocalPosition + Tracker.Translation;
+                //projectionCamera.transform.localPosition = initialLocalPosition + Tracker.Translation;
+                projectionCamera.transform.localPosition = Tracker.Translation;
             }
+            Debug.Log("cam_pos: " + projectionCamera.transform.localPosition);
         }
     }
 }
